@@ -5,7 +5,7 @@ from app.routers.input_processing import router
 app = FastAPI()
 app.include_router(router)
 
-INTERVAL_SIZE = 1000000  # TODO: move to settings file?
+INTERVAL_SIZE = 100000  # TODO: move to settings file?
 
 
 @app.on_event("startup")

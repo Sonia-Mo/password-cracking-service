@@ -5,12 +5,30 @@ import hashlib
 import time
 from typing import Set
 import ray
+import re
 
 router = APIRouter()
 output = {}
 
 # Start Ray.
 ray.init()
+
+
+async def prepare_and_validate_input(file):
+    content = await file.read()
+
+    if content.decode() == "":
+        raise InvalidInputException.empty_file
+
+    hash_lst = content.split(b'\r\n')
+    for i, password_hash in enumerate(hash_lst):
+        decoded_hash = password_hash.decode()
+        # MD5 hashes are always a string of 32 characters composed of letters and numbers
+        if not re.search("^[0-9a-fA-F]{32}$", decoded_hash):
+            raise InvalidInputException.not_MD5_hash
+        hash_lst[i] = decoded_hash
+
+    return hash_lst
 
 
 @ray.remote
@@ -20,10 +38,6 @@ def check_interval(hash_str, range_start, range_end):
         if result == hash_str:
             return True, f"0{i}"
     return False, None
-
-
-def validate_input_file():
-    pass
 
 
 def process_results(results: Set[tuple]):
@@ -46,14 +60,10 @@ def crack_hash(password_hash):
 
 @router.post("/upload-file/")
 async def upload_hash_file(file: UploadFile = File(...)):
-    content = await file.read()
-    hash_lst = content.split(b'\r\n')
-
-    # validate_input_file()
+    hash_lst = await prepare_and_validate_input(file)
 
     start = time.time()
     for password_hash in hash_lst:
-        password_hash = password_hash.decode()
         output[password_hash] = crack_hash(password_hash)
     end = time.time()
 
