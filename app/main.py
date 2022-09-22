@@ -1,11 +1,9 @@
 from fastapi import FastAPI
-from app import intervals
+from app import intervals, INTERVAL_SIZE
 from app.routers.input_processing import router
 
 app = FastAPI()
 app.include_router(router)
-
-INTERVAL_SIZE = 100000  # TODO: move to settings file?
 
 
 @app.on_event("startup")

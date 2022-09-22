@@ -2,46 +2,59 @@ from fastapi import APIRouter, UploadFile, File
 from app import intervals
 from app.exceptions import InvalidInputException
 import hashlib
-import time
-from typing import Set
+from typing import Set, List
 import ray
-import re
+from re import search
 
 router = APIRouter()
-output = {}
 
 # Start Ray.
 ray.init()
 
 
-async def prepare_and_validate_input(file):
-    content = await file.read()
+def prepare_and_validate_input(client_input) -> List[str]:
+    """ Verify that the file is applicable using the following criteria:
+    (1) file format is txt.  (2) file is not empty.  (3) file contains only MD5 hashes.
+    In case file is valid, prepare it for processing by splitting it into a list of hashes.
+    """
+    if not client_input.filename.endswith('.txt'):
+        raise InvalidInputException.wrong_file_format
+
+    with client_input.file as f:
+        content = f.read()
 
     if content.decode() == "":
         raise InvalidInputException.empty_file
 
+    # Prepare list of hashes for processing and convert hashes from bytes to strings
     hash_lst = content.split(b'\r\n')
-    for i, password_hash in enumerate(hash_lst):
-        decoded_hash = password_hash.decode()
-        # MD5 hashes are always a string of 32 characters composed of letters and numbers
-        if not re.search("^[0-9a-fA-F]{32}$", decoded_hash):
-            raise InvalidInputException.not_MD5_hash
-        hash_lst[i] = decoded_hash
+    hash_lst = [password_hash.decode() for password_hash in hash_lst]
 
+    # MD5 hashes are always a string of 32 characters composed of letters and numbers
+    for hash_string in hash_lst:
+        if not search("^[0-9a-fA-F]{32}$", hash_string):
+            raise InvalidInputException.not_MD5_hash
     return hash_lst
 
 
 @ray.remote
-def check_interval(hash_str, range_start, range_end):
-    for i in range(range_start, range_end):
+def check_interval(hash_string: str, interval_start: int, interval_end: int) -> tuple:
+    """ The minion servers function - receives hash and a range of potential passwords,
+    goes over the range, calculates the hash of each function and compares it to the given hash.
+    If the password is found, a tuple of (True, password) is returned, otherwise (False, None).
+    """
+    for i in range(interval_start, interval_end):
         result = hashlib.md5(f"0{i}".encode()).hexdigest()
-        if result == hash_str:
+        if result == hash_string:
             return True, f"0{i}"
     return False, None
 
 
-def process_results(results: Set[tuple]):
-    # If only (False, None) exists in set, then hash is not cracked
+def process_results(results: Set[tuple]) -> str:
+    """ Receive **set** of results from all minions and arrange the final result.
+    For a valid phone number password there should be two tuples: (True, password) and (False, None).
+    For invalid password (not a phone number) there should be only (False, None).
+    """
     if len(results) == 1:
         raise InvalidInputException.not_phone_number
 
@@ -50,22 +63,24 @@ def process_results(results: Set[tuple]):
             return password
 
 
-def crack_hash(password_hash):
+def crack_hash(hash_string: str) -> str:
+    """ Manage minions - divide the cracking workload between them using Ray
+    functionality to distribute work between workers
+    """
     result = []
     for (interval_start, interval_end) in intervals:
-        # Use Ray functionality to distribute work between workers
-        result.append(check_interval.remote(password_hash, interval_start, interval_end))
+        result.append(check_interval.remote(hash_string, interval_start, interval_end))
     return process_results(set(ray.get(result)))
 
 
 @router.post("/upload-file/")
-async def upload_hash_file(file: UploadFile = File(...)):
-    hash_lst = await prepare_and_validate_input(file)
+async def upload_hash_file(client_input: UploadFile = File(...)):
+    """ Main endpoint which receives input file and functions as the master server.
+    """
+    hash_lst = prepare_and_validate_input(client_input)
 
-    start = time.time()
-    for password_hash in hash_lst:
-        output[password_hash] = crack_hash(password_hash)
-    end = time.time()
+    output = {}
+    for hash_string in hash_lst:
+        output[hash_string] = crack_hash(hash_string)
 
-    return (end - start), output
-
+    return output
