@@ -1,5 +1,5 @@
 <p align="center">
-<img src="C:\Users\sonia\Documents\password-cracking-service\readme\password-cracking.avif" width="500" height="150" />
+<img src="https://media.cybernews.com/images/featured/2020/08/password-cracking-techniques-1.jpg" width="500" height="150" />
 </p>
 
 # Password Cracking Service
