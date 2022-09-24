@@ -8,11 +8,13 @@ from re import search
 
 router = APIRouter()
 
-# Start Ray.
-ray.init()
+
+@router.on_event("startup")
+def initialize_ray():
+    ray.init()
 
 
-def prepare_and_validate_input(client_input) -> List[str]:
+def prepare_and_validate_input(client_input: UploadFile) -> List[str]:
     """ Verify that the file is applicable using the following criteria:
     (1) file format is txt.  (2) file is not empty.  (3) file contains only MD5 hashes.
     In case file is valid, prepare it for processing by splitting it into a list of hashes.
@@ -37,16 +39,17 @@ def prepare_and_validate_input(client_input) -> List[str]:
     return hash_lst
 
 
-@ray.remote
+@ray.remote(max_retries=-1)
 def check_interval(hash_string: str, interval_start: int, interval_end: int) -> tuple:
     """ The minion servers function - receives hash and a range of potential passwords,
     goes over the range, calculates the hash of each function and compares it to the given hash.
     If the password is found, a tuple of (True, password) is returned, otherwise (False, None).
     """
     for i in range(interval_start, interval_end):
-        result = hashlib.md5(f"0{i}".encode()).hexdigest()
+        phone_number_str = f"0{str(i)[:2] + '-' + str(i)[2:]}"
+        result = hashlib.md5(phone_number_str.encode()).hexdigest()
         if result == hash_string:
-            return True, f"0{i}"
+            return True, phone_number_str
     return False, None
 
 
